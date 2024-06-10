@@ -57,3 +57,5 @@ And that's it, this option is for people who wants to know how this is done.
 ## Using the YAML example file
 
 Just use the `instana_agent_2backend_example.yml` and modify it per your needs.
+
+Hope this helps!
