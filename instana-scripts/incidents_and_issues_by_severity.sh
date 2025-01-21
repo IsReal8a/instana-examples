@@ -24,6 +24,7 @@ _usage()
     echo " Run export API_TOKEN and TENANT_UNIT separately for security purposes"
     echo " export API_TOKEN=<your-api-token>"
     echo " export TENANT_UNIT=<your-instana-tenant-unit>"
+    echo "   example: export TENANT_UNIT=sesandbox-instana"
     echo ""
     echo " The script is going to create a JSON file with Incidents and Issues"
     echo " within the Window Size scope, default is one hour, based on Severity."
