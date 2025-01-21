@@ -15,6 +15,7 @@ _usage()
     echo " Run export API_TOKEN and TENANT_UNIT separately for security purposes"
     echo " export API_TOKEN=<your-api-token>"
     echo " export TENANT_UNIT=<your-instana-tenant-unit>"
+    echo "   Example: export TENANT_UNIT=sesandbox-instana"
     echo ""
     echo " The script is going to create a CSV file with the Entity, Agent Version and Hostname"
 }
