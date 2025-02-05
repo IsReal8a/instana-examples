@@ -1,4 +1,4 @@
-# Install Instana agent with K8sensor Dual Backend using Operator or Yaml
+# Install Instana agent with Dual Backend
 Instana Agent Operator doesn't support K8sensor dual backend, but, there is a temporary workaround...
 
 ---
