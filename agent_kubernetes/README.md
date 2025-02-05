@@ -1,10 +1,13 @@
-# Install Instana agent with Dual Backend using Operator or Yaml
-Instana Agent Operator doesn't support dual backend, but, there is a temporary workaround...
+# Install Instana agent with K8sensor Dual Backend using Operator or Yaml
+Instana Agent Operator doesn't support K8sensor dual backend, but, there is a temporary workaround...
 
 ---
 
 **NOTE: This is not supported by IBM Instana Support**, please see the official limitations here:
 https://www.ibm.com/docs/en/instana-observability/current?topic=ise-migrating-from-self-hosted-classic-edition-docker-standard-edition#limitations
+
+More details can be found in the instana-agent GitHub repo
+https://github.com/instana/helm-charts/tree/main/instana-agent#configuring-additional-backends
 
 ---
 
@@ -49,7 +52,7 @@ spec:
 
 ## Configure k8sensor for additional backend
 
-K8sensor can only report to one backend at the moment, the temporary workaround is to create an additional deployment of the `k8sensor` for each additional backend.
+K8sensor can only report to one backend at the moment, BUT the temporary workaround is to create an additional deployment of the `k8sensor` for each additional backend.
 
 - Specify the additional backend in the `configMap/k8sensor` by adding a key `backend-2` with the same format as `backend`
 
@@ -78,7 +81,7 @@ data:
   key-2: <base64 encoded key2>
 ```
 
-- Adjust the following parameters in `k8sensor2.yaml` ONLY as shown below, all other parameters are the same:
+- Adjust the following parameters in `k8sensor2.yaml` as shown below ONLY, all other parameters are the same:
 
 ```
 kind: Deployment
