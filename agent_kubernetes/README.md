@@ -1,11 +1,10 @@
 # Install Instana agent with Dual Backend
 ---
 Instana Agent **doesn't support K8sensor dual backend**, but, there is a temporary workaround...
-
 **NOTE: This is not supported by IBM Instana Support**, please see the official limitations here:
 https://www.ibm.com/docs/en/instana-observability/current?topic=ise-migrating-from-self-hosted-classic-edition-docker-standard-edition#limitations
 
-On how to configure multiple backends more details can be found in the `instana-agent` GitHub repo
+On how to configure multiple backends, more details can be found in the `instana-agent` GitHub repo
 https://github.com/instana/helm-charts/tree/main/instana-agent#configuring-additional-backends
 
 ---
