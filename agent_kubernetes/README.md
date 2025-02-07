@@ -9,6 +9,7 @@ https://github.com/instana/helm-charts/tree/main/instana-agent#configuring-addit
 
 ---
 
+## Install agent
 - Install the agent as you normally do for just one backend.
 
 ## Configure agent for additional backend
