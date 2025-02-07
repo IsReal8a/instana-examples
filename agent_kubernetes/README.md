@@ -10,6 +10,8 @@ https://github.com/instana/helm-charts/tree/main/instana-agent#configuring-addit
 ---
 
 - Install the agent as you normally do for just one backend.
+
+## Configure agent for additional backend
 - Edit `ConfigMap`for the `instana-agent` and add the section `additional-backend-2` as follows:
 
 ```
@@ -48,7 +50,7 @@ spec:
             defaultMode: 420
 ```
 
-## Configure k8sensor for additional backend
+## Configure k8sensor in the agent for additional backend
 
 K8sensor can only report to one backend at the moment, BUT the temporary workaround is to create an additional deployment of the `k8sensor` for each additional backend.
 
