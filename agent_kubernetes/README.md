@@ -19,7 +19,7 @@ metadata:
 data:
   additional-backend-2: |
     host=<Instana endpoint 2>
-    port=1444
+    port=443 # This is default, you can change it to any other port as 1443
     key=<AGENT_KEY_2>
     protocol=HTTP/2
 ```
@@ -60,7 +60,7 @@ metadata:
   name: k8sensor
 data:
   backend: '<BACKEND>:443'
-  backend-2: '<ADDITIONAL BACKEND>:1444'
+  backend-2: '<ADDITIONAL BACKEND>:443'
 ```
 
 - Export current k8sensor's manifest:
