@@ -1,19 +1,15 @@
 # Install Instana agent with Dual Backend
----
-Instana Agent **doesn't support K8sensor dual backend**, but, there is a temporary workaround...
-**NOTE: This is not supported by IBM Instana Support**, please see the official limitations here:
-https://www.ibm.com/docs/en/instana-observability/current?topic=ise-migrating-from-self-hosted-classic-edition-docker-standard-edition#limitations
-
-On how to configure multiple backends, more details can be found in the `instana-agent` GitHub repo
-https://github.com/instana/helm-charts/tree/main/instana-agent#configuring-additional-backends
-
+Customers have been successful to connect the agent to dual backend for Classic (Docker) and Standard. This is needed for migration purposes.
 ---
 
 ## Install agent
-- Install the agent as you normally do for just one backend.
+On how to install and configure the agent for multiple backends, more details can be found in the `instana-agent` GitHub repo
+https://github.com/instana/helm-charts/tree/main/instana-agent#configuring-additional-backends
 
 ## Configure agent for additional backend
-- Edit `ConfigMap`for the `instana-agent` and add the section `additional-backend-2` as follows:
+If your agent is installed already, you can add the new backend as follows:
+
+- Edit `ConfigMap`for the `instana-agent` and add the section `additional-backend-2`:
 
 ```
 kind: ConfigMap
@@ -22,7 +18,7 @@ metadata:
 data:
   additional-backend-2: |
     host=<Instana endpoint 2>
-    port=443 # This is default, you can change it to any other port as 1443
+    port=443 # This is default, you can change it to any other port, example port 1443
     key=<AGENT_KEY_2>
     protocol=HTTP/2
 ```
@@ -52,8 +48,13 @@ spec:
 ```
 
 ## Configure k8sensor in the agent for additional backend
+**IMPORTANT:** Instana Agent **doesn't support K8sensor dual backend officially**, but, there is a temporary workaround...
 
-K8sensor can only report to one backend at the moment, BUT the temporary workaround is to create an additional deployment of the `k8sensor` for each additional backend.
+**NOTE: This is not supported by IBM Instana Support**, you can't ask support for this, please see the official limitations here:
+
+https://www.ibm.com/docs/en/instana-observability/current?topic=ise-migrating-from-self-hosted-classic-edition-docker-standard-edition#limitations
+
+**K8sensor** can only report to one backend at the moment, BUT the temporary workaround is to create an additional deployment of the `k8sensor` for each additional backend.
 
 - Specify the additional backend in the `configMap/k8sensor` by adding a key `backend-2` with the same format as `backend`
 
