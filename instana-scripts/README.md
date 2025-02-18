@@ -16,10 +16,10 @@ Script to query agents and hosts from the Instana API to get the Instana's versi
 Script to query incidents and issues from the Instana Events API and creates a JSON file (optional) based on Severity.
 
 ## Others
-### Get the list of the Instana Agent latest changes from last two commits
+### Get the list of the Instana Agent latest changes
 `get_agent_latest_changes.sh`
 
-Script to get the latest Instana Agent changes using the last two major commits in the agent aka "Agent 1.2.X" from GITHUB.
+Script to get the latest Instana Agent changes using the last two major commits aka "Agent 1.2.X" from GITHUB.
 
 First of all install xmlstarlet
 
