@@ -36,16 +36,15 @@ This is useful for customers that use the static Agent approach. Still you can s
 
 <details>
   <summary>For an example, click HERE!</summary>
-
 ```
-# ./get_latest_agent_changes.sh
+# ./get_agent_latest_changes.sh
 Latest Instana Agent commit information...
 ------------------------------------------
-SHA: 9028b5633315af7fafcc8baf43b74f53c521cf99, Agent Version: 1.2.17, Date: 2025-02-13T14:25:24Z
+SHA: 9028b5633315af7fafcc8baf43b74f53c521cf99, Tag: 2025.02.13.1425, Agent Version: 1.2.17, Date: 2025-02-13T14:25:24Z
 
 Previous Instana Agent commit information...
 ------------------------------------------
-SHA: 89f11bf00f3a54eb650120de5e67106bb49c8789, Agent Version: 1.2.16, Date: 2025-01-23T09:50:09Z
+SHA: 89f11bf00f3a54eb650120de5e67106bb49c8789, Tag: 2025.01.23.0950, Agent Version: 1.2.16, Date: 2025-01-23T09:50:09Z
 
 GitHub URL for reference
 ------------------------------------------
@@ -80,5 +79,4 @@ All commits between version 1.2.16 and version 1.2.17...
 2025-01-27T10:53:59Z | CHANGE: KubeCost Sensor 1.0.0: Add Kubernetes cost information | CHANGE URL: https://github.com/instana/agent-updates/commit/df12a9395d4fec7a99b91fb51b9284305bd023b1
 2025-01-27T08:26:36Z | CHANGE: IBM Datapower Sensor 1.0.18 : Adding support for IBM MQ v9+ | CHANGE URL: https://github.com/instana/agent-updates/commit/3135d7212e6dfd2d4cc40558acb8353e07c00b03
 2025-01-23T09:50:09Z | CHANGE: Agent 1.2.16 | CHANGE URL: https://github.com/instana/agent-updates/commit/89f11bf00f3a54eb650120de5e67106bb49c8789
-```
 </details>
