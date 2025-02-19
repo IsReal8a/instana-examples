@@ -11,7 +11,7 @@
 # It's ideal to use the GitHub API Token to avoid limits calling the API :).
 # You can comment the Authorization header and use the script as it's.
 
-GITHUB_API_TOKEN="github_pat_ADD_YOUR_API_KEY"
+GITHUB_API_TOKEN="github_pat_YOUR KEY"
 
 # Set the headers for the API request.
 HEADERS=(
@@ -52,14 +52,26 @@ AGENT_SHA_PREVIOUS="${GET_REFERENCE_COMMITS[1]}"
 AGENT_DATE_PREVIOUS="${AGENT_DATA_PREVIOUS[0]}"
 AGENT_VERSION_PREVIOUS="${AGENT_DATA_PREVIOUS[2]}"
 
+# TAGS! - Since the Instana API uses tags in the form of "2025.02.13.1425".
+# I need to extract that tag from the tags using the commid id, yeah!
+
+# Get all tags! this is the only way, limit 60.
+GET_TAGS="$(curl -s -X GET "https://api.github.com/repos/instana/agent-updates/tags?per_page=60"  -H "${HEADERS[@]}")"
+
+# Get the Tag from the major Agent version, latest.
+AGENT_TAG_LATEST="$(jq -r --arg field ${AGENT_SHA_LATEST} '.[] | select(.commit.sha == "\($field)") | .name' <<<"${GET_TAGS}")"
+
+# Get the Tag from the major Agent version, previous.
+AGENT_TAG_PREVIOUS="$(jq -r --arg field ${AGENT_SHA_PREVIOUS} '.[] | select(.commit.sha == "\($field)") | .name' <<<"${GET_TAGS}")"
+
 # Present the data to the end user.
 echo "Latest Instana Agent commit information..."
 echo "------------------------------------------"
-echo "SHA: ${AGENT_SHA_LATEST}, Agent Version: ${AGENT_VERSION_LATEST}, Date: ${AGENT_DATE_LATEST}"
+echo "SHA: ${AGENT_SHA_LATEST}, Tag: ${AGENT_TAG_LATEST}, Agent Version: ${AGENT_VERSION_LATEST}, Date: ${AGENT_DATE_LATEST}"
 echo ""
 echo "Previous Instana Agent commit information..."
 echo "------------------------------------------"
-echo "SHA: ${AGENT_SHA_PREVIOUS}, Agent Version: ${AGENT_VERSION_PREVIOUS}, Date: ${AGENT_DATE_PREVIOUS}"
+echo "SHA: ${AGENT_SHA_PREVIOUS}, Tag: ${AGENT_TAG_PREVIOUS}, Agent Version: ${AGENT_VERSION_PREVIOUS}, Date: ${AGENT_DATE_PREVIOUS}"
 echo ""
 echo "GitHub URL for reference"
 echo "------------------------------------------"
