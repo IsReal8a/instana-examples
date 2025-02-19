@@ -1,2 +1,2 @@
 # Instana Examples
-Examples that may help you succeed with Instana
+Examples that can help you succeed with Instana
