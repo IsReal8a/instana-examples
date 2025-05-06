@@ -1,5 +1,5 @@
 #!/bin/sh
-# Script to get the data out of Instana API
+# Script to get the metrics out of Instana API
 # In this example, Infrastructure CPU, MEM
 # Reads the env variables:
 #     INSTANA_API_TOKEN
