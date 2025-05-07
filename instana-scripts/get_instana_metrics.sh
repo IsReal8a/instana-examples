@@ -6,82 +6,108 @@
 #     INSTANA_API_URL
 # Change the values as needed
 
-# JSON File path
-JSON_FILE="/tmp/instana_data.json"
+set -e
 
+# JSON File path
+JSON_FILE="/tmp/instana_metrics.json"
+PRETTY_JSON="/tmp/instana_pretty.json"
 TIMEFRAME_TO=$(date +%s000)
+
+# Fetch data from Instana API (windowSize in milliseconds)
 wget --quiet --output-document=$JSON_FILE --header="authorization: apiToken $INSTANA_API_TOKEN" \
 --header="Content-Type: application/json" \
 --post-data='{
-    "timeFrame": {
-      "to": '"$TIMEFRAME_TO"',
-      "windowSize": 3600000
-    },
-    "tagFilterExpression": {
-        "type": "TAG_FILTER",
-        "name": "zone",
-        "operator": "EQUALS",
-        "entity": "NOT_APPLICABLE",
-        "value": "ocp-zone",
-        "tagDefinition": {
-          "name": "zone",
-          "type": "STRING",
-          "path": [
-            {
-              "label": "Other"
-            },
-            {
-              "label": "zone"
-            }
-          ],
-          "availability": []
-        }
-      },
-    "pagination": {
-      "retrievalSize": 20
-    },
-    "type": "host",
-    "metrics": [
-      {
-        "metric": "cpu.used",
-        "aggregation": "MEAN",
-        "label": "Used (Cpu)"
-      },
-      {
-        "metric": "memory.used",
-        "aggregation": "MEAN",
-        "label": "Used (Memory)"
-      }
-    ],
-    "order": {
-      "by": "label",
-      "direction": "ASC"
-    }
-}' \
-"$INSTANA_API_URL"
+  "metrics": [
+    "cpu.used","memory.used"
+  ],
+  "plugin": "host",
+  "query": "entity.zone:ocp-zone",
+  "rollup": 5,
+  "timeFrame": {
+    "to": '"$TIMEFRAME_TO"',
+    "windowSize": 300000
+  }
+}' "$INSTANA_API_URL/api/infrastructure-monitoring/metrics"
+
+# Preprocess JSON: split each item block onto a new line
+sed 's/},{/},\n{/g' "$JSON_FILE" > "$PRETTY_JSON"
 
 # Start JSON array
 echo "["
 
-# Extract the relevant parts using a more robust approach
-first=true
-# Use sed to isolate each item block
-sed -n '/"items":\[/,/\]/{/"snapshotId"/,/"entityHealthInfo"/p}' "$JSON_FILE" | tr '\n' ' ' | sed 's/},{/}|{/g' | tr '|' '\n' | while read -r block; do
-  label=$(echo "$block" | grep -o '"label":"[^"]*"' | head -1 | cut -d':' -f2- | tr -d '"')
-  cpu=$(echo "$block" | grep -o '"cpu.used.MEAN":\[\[[0-9]*,[0-9.]*' | cut -d',' -f2)
-  mem=$(echo "$block" | grep -o '"memory.used.MEAN":\[\[[0-9]*,[0-9.]*' | cut -d',' -f2)
+awk '
+  function process_block() {
+    if (label != "" && cpu_line != "" && mem_line != "") {
+      gsub(/.*"cpu.used":\[\[/, "", cpu_line)
+      gsub(/\]\].*/, "", cpu_line)
+      gsub(/.*"memory.used":\[\[/, "", mem_line)
+      gsub(/\]\].*/, "", mem_line)
 
-  if [[ -n "$label" && -n "$cpu" && -n "$mem" ]]; then
-    if [ "$first" = true ]; then
-      first=false
-    else
-      echo ","
-    fi
-    # echo -n "  {\"tags\": {\"hostname\": \"$label\"}, \"fields\": {\"cpu_used_MEAN\": $cpu, \"memory_used_MEAN\": $mem}}"
-    echo -n "  {\"hostname\": \"$label\", \"cpu_used_MEAN\": $cpu, \"memory_used_MEAN\": $mem}"
-  fi
-done
+      n = split(cpu_line, cpu_arr, "\\],\\[")
+      split(mem_line, mem_arr, "\\],\\[")
+
+      for (i = 1; i <= n; i++) {
+        split(cpu_arr[i], cpu_vals, ",")
+        split(mem_arr[i], mem_vals, ",")
+
+        ts = cpu_vals[1]
+        cpu = cpu_vals[2]
+        mem = mem_vals[2]
+
+        if (ts != "" && cpu != "" && mem != "") {
+          if (first == 1) {
+            first = 0
+          } else {
+            printf(",\n")
+          }
+          printf("  {\"measurement\": \"instana_metrics\", \"hostname\": \"%s\", \"timestamp\": %s, \"cpu_used\": %s, \"memory_used\": %s}", label, ts, cpu, mem)
+
+        }
+      }
+    }
+  }
+
+  BEGIN {
+    first = 1
+    label = ""
+    cpu_line = ""
+    mem_line = ""
+  }
+
+  /"snapshotId":/ {
+    process_block()
+    label = ""
+    cpu_line = ""
+    mem_line = ""
+  }
+
+  /"label":/ {
+    match($0, /"label"[[:space:]]*:[[:space:]]*"[^"]+"/)
+    label = substr($0, RSTART + 9, RLENGTH - 10)
+  }
+
+  /"cpu.used":\[\[/ {
+    cpu_line = $0
+    while (cpu_line !~ /\]\]/ && (getline line) > 0) {
+      cpu_line = cpu_line line
+    }
+  }
+
+  /"memory.used":\[\[/ {
+    mem_line = $0
+    while (mem_line !~ /\]\]/ && (getline line) > 0) {
+      mem_line = mem_line line
+    }
+  }
+
+  END {
+    process_block()
+  }
+' "$PRETTY_JSON"
 
 # End JSON array
 echo
 echo "]"
+
+# Cleanup
+rm -f "$PRETTY_JSON"
