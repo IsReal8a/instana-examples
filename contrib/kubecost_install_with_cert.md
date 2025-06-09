@@ -156,7 +156,7 @@ On your local terminal,
       kind: ClusterIssuer
   ```
 
-  - Check the state of the 'Certificate' - 'kuebcost-tls'
+  - Check the state of the 'Certificate' - 'kubecost-tls'
 
   ```sh
   oc get certificate kubecost-tls -o wide
