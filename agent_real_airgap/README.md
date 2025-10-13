@@ -11,6 +11,14 @@ The guide assumes the reader has some Linux and OCP knowledge, "it works in my m
 
 ## Preparation
 
+**IMPORTANT**: When working with the `instana-agent` image, it takes a while for skopeo... isn't something that is real quick because the size, just wait until the command completes, if you want to see details run the script with `bash -x`.
+Example:
+```shell
+-rw-r--r--. 1 user root 1444824576 Oct 10 13:44 containers.instana.io_instana_release_agent_static_latest.tar
+-rw-r--r--. 1 user root  166039040 Oct 10 13:44 icr.io_instana_instana-agent-operator_2.1.36.tar
+-rw-r--r--. 1 user root  140064768 Oct 10 13:44 icr.io_instana_k8sensor_latest.tar
+```
+
 Install skopeo
 
 Ensure you do a `oc login`
