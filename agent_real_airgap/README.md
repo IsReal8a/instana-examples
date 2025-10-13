@@ -11,7 +11,7 @@ The guide assumes the reader has some Linux and OCP knowledge, "it works in my m
 
 ## Preparation
 
-**IMPORTANT**: When working with the `instana-agent` image, it takes a while for skopeo... isn't something that is real quick because the size, just wait until the command completes, if you want to see details run the script with `bash -x`.
+**IMPORTANT**: It takes a while for the script to complete because the size of the images... isn't something that is real quick, just wait until the command completes, if you want to see details run the script with `bash -x`.
 
 ```shell
 -rw-r--r--. 1 user root 1444824576 Oct 10 13:44 containers.instana.io_instana_release_agent_static_latest.tar
