@@ -271,10 +271,10 @@ if [[ "${PUSH_ONLY}" != "true" ]]; then
   tar -xzf "${CHART_TGZ}" -C "${TMP_CHART_DIR}"
   if [[ -d "${TMP_CHART_DIR}/instana-agent/crds" ]]; then
     log "Applying CRDs from chart (instana-agent/crds)"
-    kubectl apply -f "${TMP_CHART_DIR}/instana-agent/crds"
+    oc apply -f "${TMP_CHART_DIR}/instana-agent/crds"
   elif [[ -d "${TMP_CHART_DIR}/crds" ]]; then
     log "Applying CRDs from chart (crds)"
-    kubectl apply -f "${TMP_CHART_DIR}/crds"
+    oc apply -f "${TMP_CHART_DIR}/crds"
   else
     warn "No CRDs directory found inside chart archive; continuing"
   fi
