@@ -107,11 +107,7 @@ instana-agent-t9qhr                                 1/1     Running   0         
 
 ### Troubleshooting
 
-If something goes side ways, just uninstall the agent:
-
-```shell
-oc delete -f https://github.com/instana/instana-agent-operator/releases/latest/download/instana-agent-operator.yaml
-```
+If something goes side ways, just uninstall the Instana agent by deleting the `instana-agent` project on OpenShift UI.
 
 And most likely the Instana CR stays in "Terminating", just run:
 
