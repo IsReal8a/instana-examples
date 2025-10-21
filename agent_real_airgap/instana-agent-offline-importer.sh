@@ -7,7 +7,7 @@ set -euo pipefail
 # 1) OCI registry authentication tweaks: --oci-creds USER:PASS
 # 2) Parallel pushes: --parallel N (default: 1)
 #
-# Enhancements in this version:
+# Enhancements in 2.3:
 # - Clean engine selection: --engine {auto|podman|skopeo} (default: auto)
 # - If engine=podman → only podman is used; if engine=skopeo → only skopeo is used.
 # - In auto mode → prefer podman; if podman load fails and skopeo is present, fallback to skopeo for that image.
