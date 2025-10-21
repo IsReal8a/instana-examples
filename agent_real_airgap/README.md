@@ -85,7 +85,7 @@ You need to select your `engine` either `podman` or `skopeo` to install the imag
 Command (modify the values to your environment):
 
 ```shell
-./instana-agent-offline-importer.sh   --kit-dir ./instana-offline-kit   --namespace instana-agent   --cluster-name CP4BA_IO   --zone-name DarkZone   --endpoint-host ingress-red-saas.instana.io   --endpoint-port 443   --agent-tag latest   --sensor-tag latest   --operator-tag 2.1.36   --agent-key YOUR_AGENT_KEY --agent-repo-name static --engine skopeo
+./instana-agent-offline-importer.sh   --kit-dir ./instana-offline-kit   --namespace instana-agent   --cluster-name CP4BA_IO   --zone-name DarkZone   --endpoint-host ingress-red-saas.instana.io   --endpoint-port 443   --agent-tag latest   --sensor-tag latest   --operator-tag 2.1.36   --agent-key YOUR_AGENT_KEY --agent-repo-name static --engine skopeo --parallel 3
 ```
 
 If you want to see what's happening (debug mode) just run the script with `bash -x`.
