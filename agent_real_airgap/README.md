@@ -80,12 +80,15 @@ If everything runs fine, you should have the following directory structure:
 ### instana-agent-offline-importer.sh
 
 Use this script to install the Instana agent into the Redhat Openshift cluster without the need of the Internet nor Bastion host (Real Airgapped environment).
+You need to select your `engine` either `podman` or `skopeo` to install the images, there is an `auto` option and that defaults to `podman`.
 
 Command (modify the values to your environment):
 
 ```shell
-./instana-agent-offline-importer.sh   --kit-dir ./instana-offline-kit   --namespace instana-agent   --cluster-name CP4BA_IO   --zone-name DarkZone   --endpoint-host ingress-red-saas.instana.io   --endpoint-port 443   --agent-tag latest   --sensor-tag latest   --operator-tag 2.1.36   --agent-key YOUR_AGENT_KEY --agent-repo-name static
+./instana-agent-offline-importer.sh   --kit-dir ./instana-offline-kit   --namespace instana-agent   --cluster-name CP4BA_IO   --zone-name DarkZone   --endpoint-host ingress-red-saas.instana.io   --endpoint-port 443   --agent-tag latest   --sensor-tag latest   --operator-tag 2.1.36   --agent-key YOUR_AGENT_KEY --agent-repo-name static --engine skopeo
 ```
+
+If you want to see what's happening (debug mode) just run the script with `bash -x`.
 
 If everything runs without problems, you should see something like this at the end:
 
@@ -117,3 +120,5 @@ oc patch agent instana-agent -n instana-agent \
 ```
 
 The Instana agent should be removed and you can try the installation again.
+
+If you see any `instana-agent` POD in `ErrImagePull`, just delete the POD and it will recreate.

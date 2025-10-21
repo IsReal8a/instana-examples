@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # ==============================================================================
-# Instana Agent — OFFLINE IMPORT & INSTALL (v2.2)
+# Instana Agent — OFFLINE IMPORT & INSTALL (v2.3)
+#
+# Enhancements in this version:
+# - Clean engine selection: --engine {auto|podman|skopeo} (default: auto)
+# - If engine=podman → only podman is used; if engine=skopeo → only skopeo is used.
+# - In auto mode → prefer podman; if podman load fails and skopeo is present, fallback to skopeo for that image.
 #
 # What this script does:
 #   1) Push images from the offline kit into your OpenShift internal registry.
@@ -30,16 +35,14 @@ log()   { echo ">>> $*"; }
 # ------------------------- CLI defaults -------------------------
 KIT_DIR=""
 NAMESPACE="instana-agent"
-
 CLUSTER_NAME=""
 ZONE_NAME=""
-
 ENDPOINT_HOST=""
 ENDPOINT_PORT="443"
 AGENT_KEY=""
-
 REGISTRY_HOST=""         # internal registry route; auto-detected if empty
 INSECURE_REGISTRY="false"
+USE_SKOPEO="false"
 
 # Tags to publish into internal registry (mapping.csv source tags are kept unless overridden)
 AGENT_TAG="latest"
@@ -49,7 +52,6 @@ OPERATOR_TAG="latest"
 # Repo name to store the *agent* image under, default "instana-agent"
 # (even if the source was ".../release/agent/static", we tag to /<ns>/instana-agent:<tag>)
 AGENT_REPO_NAME="instana-agent"
-
 CHART_TGZ=""
 PUSH_ONLY="false"
 INSTALL_ONLY="false"
@@ -58,34 +60,26 @@ RELEASE_NAME="instana-agent"
 usage() {
   cat <<EOF
 Usage: $0 --kit-dir DIR [options]
-
 Required:
   --kit-dir DIR            Path to the offline kit directory (with charts/, images/, metadata/)
-
 Options:
   --namespace NAME         Target namespace/project (default: instana-agent)
   --cluster-name NAME      Cluster display name in Instana
   --zone-name NAME         Zone label in Instana
-
   --endpoint-host HOST     Instana backend host (required for working agents)
   --endpoint-port PORT     Instana backend port (default: 443)
   --agent-key KEY          Instana agent key (required for working agents)
-
   --registry HOST          Internal registry route (auto-detect if omitted)
   --insecure-registry      Skip TLS verification when pushing to internal registry
-
   --agent-tag TAG          Tag to push/consume for agent (default: latest)
   --sensor-tag TAG         Tag to push/consume for k8sensor (default: latest)
   --operator-tag TAG       Tag to push/consume for operator (default: latest)
   --agent-repo-name NAME   Repo name to use for agent in internal registry (default: instana-agent)
-
   --chart FILE.tgz         Chart archive (auto-detect from kit if omitted)
-
   --push-only              Only push images (skip Helm install/upgrade)
   --install-only           Only install/upgrade (skip image pushes)
-
+  --engine MODE            Image engine: auto | podman | skopeo (default: auto)
   -h|--help                This help
-
 Notes:
 - The Instana Helm chart (v2) deploys an Operator, which creates the Agent DaemonSet
   and the k8sensor Deployment from an Agent Custom Resource rendered by Helm. [1]
@@ -113,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     --chart)              CHART_TGZ="$2"; shift 2;;
     --push-only)          PUSH_ONLY="true"; shift 1;;
     --install-only)       INSTALL_ONLY="true"; shift 1;;
+    --engine)             ENGINE="$2"; shift 2;;
     -h|--help)            usage; exit 0;;
     *) die "Unknown argument: $1";;
   esac
@@ -123,15 +118,29 @@ done
 
 need_bin() { command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1"; }
 need_bin oc
-need_bin podman
 need_bin helm
-# skopeo is optional; only used as fallback from docker-archive
-if ! command -v skopeo >/dev/null 2>&1; then
-  warn "skopeo not found; will rely on 'podman load' only (install skopeo for fallback)"
-fi
+
+# Decide engine
+case "${ENGINE}" in
+  auto)
+    if command -v podman >/dev/null 2>&1; then
+      ENGINE="podman"
+    elif command -v skopeo >/dev/null 2>&1; then
+      ENGINE="skopeo"
+    else
+      die "Neither podman nor skopeo found; install one or set --engine accordingly"
+    fi
+    ;;
+  podman)
+    need_bin podman
+    ;;
+  skopeo)
+    need_bin skopeo
+    ;;
+  *) die "Invalid --engine '${ENGINE}', expected auto|podman|skopeo";;
+esac
 
 oc whoami >/dev/null 2>&1 || die "You must be logged in with 'oc login'"
-
 log "Using namespace: ${NAMESPACE}"
 oc new-project "${NAMESPACE}" >/dev/null 2>&1 || true
 
@@ -162,68 +171,103 @@ if [[ "${INSECURE_REGISTRY}" == "true" ]]; then
   SKOPEO_TLS="--dest-tls-verify=false"
 fi
 
-log "Logging into internal registry with OpenShift token"
-podman login "${TLSFLAG[@]}" -u kubeadmin -p "$(oc whoami -t)" "${REGISTRY_HOST}" >/dev/null
+if [[ "${ENGINE}" == "podman" ]]; then
+  log "Logging into internal registry with OpenShift token (podman)"
+  podman login "${TLSFLAG[@]}" -u kubeadmin -p "$(oc whoami -t)" "${REGISTRY_HOST}" >/dev/null
+else
+  log "Using skopeo with --dest-creds; no podman login required"
+fi
 
 # Grant SCCs required by Instana on OpenShift (idempotent)
 oc adm policy add-scc-to-user privileged -z instana-agent -n "${NAMESPACE}" >/dev/null || true
 oc adm policy add-scc-to-user anyuid -z instana-agent-remote -n "${NAMESPACE}" >/dev/null || true
 
-# ------------------------- Push images from kit -------------------------
-push_one() {
-  local TAR_PATH="$1"   # kit tar path
-  local SRC_REF="$2"    # original registry ref from mapping.csv
-
-  # Derive destination repo/tag in internal registry
+# ------------------------------ Push images from kit ------------------------------
+# Compute destination ref and per-image tag override; independent of engine.
+map_dest() {
+  local SRC_REF="$1"
   local NAME_NO_TAG="${SRC_REF%:*}"
   local SRC_TAG="${SRC_REF##*:}"
   local BASE_COMP
   BASE_COMP="$(basename "${NAME_NO_TAG}")"
-
-  # Map agent image (which might be 'static' or 'dynamic' in source) to AGENT_REPO_NAME
-  local DEST_REPO
+  local DEST_REPO DEST_TAG
   case "${BASE_COMP}" in
     static|dynamic|agent) DEST_REPO="${AGENT_REPO_NAME}";;
-    k8sensor)             DEST_REPO="k8sensor";;
+    k8sensor) DEST_REPO="k8sensor";;
     instana-agent-operator) DEST_REPO="instana-agent-operator";;
-    *)                    DEST_REPO="${BASE_COMP}";;
+    *) DEST_REPO="${BASE_COMP}";;
   esac
-
-  # Allow the CLI tag overrides to replace the source tag
-  local DEST_TAG
   case "${DEST_REPO}" in
-    "${AGENT_REPO_NAME}")       DEST_TAG="${AGENT_TAG}";;
-    k8sensor)                   DEST_TAG="${SENSOR_TAG}";;
-    instana-agent-operator)     DEST_TAG="${OPERATOR_TAG}";;
-    *)                          DEST_TAG="${SRC_TAG}";;
+    "${AGENT_REPO_NAME}") DEST_TAG="${AGENT_TAG}";;
+    k8sensor) DEST_TAG="${SENSOR_TAG}";;
+    instana-agent-operator) DEST_TAG="${OPERATOR_TAG}";;
+    *) DEST_TAG="${SRC_TAG}";;
   esac
+  printf '%s\n' "${REGISTRY_HOST}/${NAMESPACE}/${DEST_REPO}:${DEST_TAG}"
+}
 
-  local DEST_REF="${REGISTRY_HOST}/${NAMESPACE}/${DEST_REPO}:${DEST_TAG}"
-
-  echo "  -> Attempting podman load: $(basename "${TAR_PATH}")"
+push_with_podman() {
+  local TAR_PATH="$1"; local DEST_REF="$2"; local SRC_REF="$3"
+  echo " -> podman load: $(basename "${TAR_PATH}")"
   if podman load -i "${TAR_PATH}" >/tmp/podman_load.out 2>/tmp/podman_load.err; then
     local LOADED
     LOADED="$(awk '/Loaded image:/ {print $3}' /tmp/podman_load.out | tail -n1)"
     [[ -z "${LOADED}" ]] && LOADED="${SRC_REF}"
-    echo "     Loaded as: ${LOADED}"
-    echo "     Tagging  -> ${DEST_REF}"
+    echo "    Loaded as: ${LOADED}"
+    echo "    Tagging -> ${DEST_REF}"
     podman tag "${LOADED}" "${DEST_REF}" || true
-    echo "     Pushing  -> ${DEST_REF}"
+    echo "    Pushing -> ${DEST_REF}"
     podman push "${TLSFLAG[@]}" "${DEST_REF}" >/dev/null
     return 0
   else
-    echo "     podman load failed; checking for skopeo..."
-    if ! command -v skopeo >/dev/null 2>&1; then
-      cat /tmp/podman_load.err >&2
-      return 1
-    fi
-    echo "     Using skopeo copy from docker-archive -> ${DEST_REF}"
-    skopeo copy --insecure-policy docker-archive:"${TAR_PATH}" \
-      docker://"${DEST_REF}" \
-      --dest-creds "kubeadmin:$(oc whoami -t)" \
-      ${SKOPEO_TLS} >/dev/null
-    return 0
+    return 1
   fi
+}
+
+push_with_skopeo() {
+  local TAR_PATH="$1"; local DEST_REF="$2"
+  echo " -> skopeo copy docker-archive -> ${DEST_REF}"
+  skopeo copy --insecure-policy docker-archive:"${TAR_PATH}" \
+    docker://"${DEST_REF}" \
+    --dest-creds "kubeadmin:$(oc whoami -t)" \
+    ${SKOPEO_TLS} >/dev/null
+}
+
+push_one() {
+  local TAR_PATH="$1"; local SRC_REF="$2"
+  local DEST_REF
+  DEST_REF="$(map_dest "${SRC_REF}")"
+
+  # quick format probe (not fatal if missing)
+  if ! tar -tf "${TAR_PATH}" manifest.json >/dev/null 2>&1; then
+    warn "manifest.json not found in ${TAR_PATH}; not a docker-archive? proceeding"
+  fi
+
+  case "${ENGINE}" in
+    podman)
+      push_with_podman "${TAR_PATH}" "${DEST_REF}" "${SRC_REF}" || die "podman failed to load/push $(basename "${TAR_PATH}")"
+      ;;
+    skopeo)
+      push_with_skopeo "${TAR_PATH}" "${DEST_REF}"
+      ;;
+    auto|*)
+      # Should not hit here because we resolved ENGINE earlier, but keep as safety:
+      if command -v podman >/dev/null 2>&1; then
+        if push_with_podman "${TAR_PATH}" "${DEST_REF}" "${SRC_REF}"; then
+          return 0
+        elif command -v skopeo >/dev/null 2>&1; then
+          warn "podman load failed; falling back to skopeo for $(basename "${TAR_PATH}")"
+          push_with_skopeo "${TAR_PATH}" "${DEST_REF}"
+        else
+          die "podman load failed and skopeo not available"
+        fi
+      elif command -v skopeo >/dev/null 2>&1; then
+        push_with_skopeo "${TAR_PATH}" "${DEST_REF}"
+      else
+        die "No engine available"
+      fi
+      ;;
+  esac
 }
 
 if [[ "${INSTALL_ONLY}" != "true" ]]; then
@@ -233,21 +277,14 @@ if [[ "${INSTALL_ONLY}" != "true" ]]; then
   while IFS=, read -r SRC SAFE; do
     TAR="${KIT_DIR}/images/${SAFE}.tar"
     [[ -f "${TAR}" ]] || die "Missing tarball: ${TAR} (from mapping ${SAFE})"
-    # quick format probe (not fatal if missing)
-    if ! tar -tf "${TAR}" manifest.json >/dev/null 2>&1; then
-      warn "manifest.json not found in ${TAR}; not a docker-archive?"
-    fi
     push_one "${TAR}" "${SRC}"
   done < "${MAPPING}"
   log "Image push complete."
 fi
 
-# -------- Auto-detect a non-latest operator tag if not supplied --------
+# ------------------------------ Auto-detect a non-latest operator tag if not supplied ------------------------------
 if [[ "${OPERATOR_TAG}" == "latest" ]]; then
-  # Prefer a non-latest operator tag mirrored in the kit
-  DETECTED="$(awk -F, '/instana-agent-operator/ && $1 ~ /icr.io\\/instana\\/instana-agent-operator:/ {
-    split($1,a,\":\"); if (a[2]!=\"latest\") print a[2]
-  }' "${KIT_DIR}/metadata/mapping.csv" | head -n1 || true)"
+  DETECTED="$(awk -F, '/instana-agent-operator/ && $1 ~ /icr.io\/instana\/instana-agent-operator:/ { split($1,a,":"); if (a[2]!="latest") print a[2] }' "${KIT_DIR}/metadata/mapping.csv" | head -n1 || true)"
   if [[ -n "${DETECTED}" ]]; then
     OPERATOR_TAG="${DETECTED}"
     log "Auto-detected operator tag: ${OPERATOR_TAG}"
@@ -256,17 +293,15 @@ if [[ "${OPERATOR_TAG}" == "latest" ]]; then
   fi
 fi
 
-# ------------------------- Helm install/upgrade -------------------------
+# ------------------------------ Helm install/upgrade ------------------------------
 if [[ "${PUSH_ONLY}" != "true" ]]; then
   if [[ -z "${CHART_TGZ}" ]]; then
     CHART_TGZ="$(ls -1 "${KIT_DIR}"/charts/instana-agent-*.tgz 2>/dev/null | head -n1 || true)"
   fi
   [[ -n "${CHART_TGZ}" && -f "${CHART_TGZ}" ]] || die "Could not find instana-agent chart archive under ${KIT_DIR}/charts (use --chart)"
-
   if [[ -z "${AGENT_KEY}" ]]; then warn "--agent-key is empty; agents will not connect"; fi
   if [[ -z "${ENDPOINT_HOST}" ]]; then warn "--endpoint-host is empty; agents will not connect"; fi
 
-  # 1) Apply CRDs from the chart to avoid CR timing issues (per Instana v2 chart notes) [2]
   TMP_CHART_DIR="$(mktemp -d)"
   tar -xzf "${CHART_TGZ}" -C "${TMP_CHART_DIR}"
   if [[ -d "${TMP_CHART_DIR}/instana-agent/crds" ]]; then
@@ -279,7 +314,6 @@ if [[ "${PUSH_ONLY}" != "true" ]]; then
     warn "No CRDs directory found inside chart archive; continuing"
   fi
 
-  # 2) Compose values pointing to your internal registry
   VALUES_FILE="$(mktemp)"
   cat > "${VALUES_FILE}" <<YAML
 agent:
@@ -308,21 +342,17 @@ YAML
     --namespace "${NAMESPACE}" --create-namespace \
     -f "${VALUES_FILE}"
 
-  # 3) Basic post-install checks
   log "Waiting for operator pod to be ready..."
   oc rollout status deploy/instana-agent-controller-manager -n "${NAMESPACE}" --timeout=180s || true
-
   log "Checking Agent CR presence and status..."
   if oc api-resources | grep -qiE '^agent(\.|s)\s'; then
     oc get agent -n "${NAMESPACE}" || true
     if command -v yq >/dev/null 2>&1; then
-      oc get agent -n "${NAMESPACE}" -o yaml | yq '.items[]?.status' || true
+      oc get agent -n "${NAMESPACE}" -o yaml | yq '.items[?].status' || true
     fi
   else
-    # Older API naming (rare): InstanaAgent
     oc get instanaagent -n "${NAMESPACE}" || true
   fi
-
   log "Pods in ${NAMESPACE}:"
   oc get pods -n "${NAMESPACE}"
 fi
