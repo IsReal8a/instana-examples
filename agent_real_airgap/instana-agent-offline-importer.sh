@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # ==============================================================================
-# Instana Agent — OFFLINE IMPORT & INSTALL (v2.3)
+# Instana Agent — OFFLINE IMPORT & INSTALL (v3)
+#
+# This version builds on v2.3 (clean engine selection) and adds:
+# 1) OCI registry authentication tweaks: --oci-creds USER:PASS
+# 2) Parallel pushes: --parallel N (default: 1)
 #
 # Enhancements in this version:
 # - Clean engine selection: --engine {auto|podman|skopeo} (default: auto)
@@ -42,7 +46,9 @@ ENDPOINT_PORT="443"
 AGENT_KEY=""
 REGISTRY_HOST=""         # internal registry route; auto-detected if empty
 INSECURE_REGISTRY="false"
-USE_SKOPEO="false"
+ENGINE="auto"      # auto | podman | skopeo
+OCI_CREDS=""       # USER:PASS (optional override)
+PARALLEL=1          # number of concurrent pushes
 
 # Tags to publish into internal registry (mapping.csv source tags are kept unless overridden)
 AGENT_TAG="latest"
@@ -78,7 +84,9 @@ Options:
   --chart FILE.tgz         Chart archive (auto-detect from kit if omitted)
   --push-only              Only push images (skip Helm install/upgrade)
   --install-only           Only install/upgrade (skip image pushes)
-  --engine MODE            Image engine: auto | podman | skopeo (default: auto)
+  --engine {auto|podman|skopeo}  Image push engine (default: auto)
+  --oci-creds USER:PASS     Use custom registry credentials (default uses OC token)
+  --parallel N              Push up to N images concurrently (default: 1)
   -h|--help                This help
 Notes:
 - The Instana Helm chart (v2) deploys an Operator, which creates the Agent DaemonSet
@@ -108,6 +116,8 @@ while [[ $# -gt 0 ]]; do
     --push-only)          PUSH_ONLY="true"; shift 1;;
     --install-only)       INSTALL_ONLY="true"; shift 1;;
     --engine)             ENGINE="$2"; shift 2;;
+    --oci-creds)          OCI_CREDS="$2"; shift 2;;
+    --parallel)           PARALLEL="$2"; shift 2;;
     -h|--help)            usage; exit 0;;
     *) die "Unknown argument: $1";;
   esac
@@ -120,7 +130,7 @@ need_bin() { command -v "$1" >/dev/null 2>&1 || die "Missing required binary: $1
 need_bin oc
 need_bin helm
 
-# Decide engine
+# Decide engine (resolve 'auto' to either podman or skopeo, preferring podman)
 case "${ENGINE}" in
   auto)
     if command -v podman >/dev/null 2>&1; then
@@ -131,17 +141,13 @@ case "${ENGINE}" in
       die "Neither podman nor skopeo found; install one or set --engine accordingly"
     fi
     ;;
-  podman)
-    need_bin podman
-    ;;
-  skopeo)
-    need_bin skopeo
-    ;;
+  podman) need_bin podman;;
+  skopeo) need_bin skopeo;;
   *) die "Invalid --engine '${ENGINE}', expected auto|podman|skopeo";;
 esac
 
 oc whoami >/dev/null 2>&1 || die "You must be logged in with 'oc login'"
-log "Using namespace: ${NAMESPACE}"
+echo "Using namespace: ${NAMESPACE}"
 oc new-project "${NAMESPACE}" >/dev/null 2>&1 || true
 
 # ------------------------- Internal registry discovery/login -------------------------
@@ -162,7 +168,7 @@ if [[ -z "${REGISTRY_HOST}" ]]; then
     [[ -n "${REGISTRY_HOST}" ]] || die "default-route not available"
   fi
 fi
-log "Internal registry: ${REGISTRY_HOST}"
+echo "Internal registry: ${REGISTRY_HOST}"
 
 TLSFLAG=( "--tls-verify=true" )
 SKOPEO_TLS="--dest-tls-verify=true"
@@ -171,11 +177,17 @@ if [[ "${INSECURE_REGISTRY}" == "true" ]]; then
   SKOPEO_TLS="--dest-tls-verify=false"
 fi
 
+# Podman login when engine=podman; skopeo will use --dest-creds per copy
 if [[ "${ENGINE}" == "podman" ]]; then
-  log "Logging into internal registry with OpenShift token (podman)"
-  podman login "${TLSFLAG[@]}" -u kubeadmin -p "$(oc whoami -t)" "${REGISTRY_HOST}" >/dev/null
+  CREDS_USER="kubeadmin"; CREDS_PASS="$(oc whoami -t)"
+  if [[ -n "${OCI_CREDS}" ]]; then
+    CREDS_USER="${OCI_CREDS%%:*}"
+    CREDS_PASS="${OCI_CREDS#*:}"
+  fi
+  echo "Logging into internal registry with OpenShift token/creds (podman)"
+  podman login "${TLSFLAG[@]}" -u "${CREDS_USER}" -p "${CREDS_PASS}" "${REGISTRY_HOST}" >/dev/null
 else
-  log "Using skopeo with --dest-creds; no podman login required"
+  echo "Using skopeo with --dest-creds per copy; no podman login required"
 fi
 
 # Grant SCCs required by Instana on OpenShift (idempotent)
@@ -226,10 +238,15 @@ push_with_podman() {
 
 push_with_skopeo() {
   local TAR_PATH="$1"; local DEST_REF="$2"
+  local CREDS
+  CREDS="kubeadmin:$(oc whoami -t)"
+  if [[ -n "${OCI_CREDS}" ]]; then
+    CREDS="${OCI_CREDS}"
+  fi
   echo " -> skopeo copy docker-archive -> ${DEST_REF}"
   skopeo copy --insecure-policy docker-archive:"${TAR_PATH}" \
     docker://"${DEST_REF}" \
-    --dest-creds "kubeadmin:$(oc whoami -t)" \
+    --dest-creds "${CREDS}" \
     ${SKOPEO_TLS} >/dev/null
 }
 
@@ -250,7 +267,7 @@ push_one() {
     skopeo)
       push_with_skopeo "${TAR_PATH}" "${DEST_REF}"
       ;;
-    auto|*)
+    *)
       # Should not hit here because we resolved ENGINE earlier, but keep as safety:
       if command -v podman >/dev/null 2>&1; then
         if push_with_podman "${TAR_PATH}" "${DEST_REF}" "${SRC_REF}"; then
@@ -270,26 +287,59 @@ push_one() {
   esac
 }
 
+# ------------------------------ Push images loop (with parallel) ------------------------------
 if [[ "${INSTALL_ONLY}" != "true" ]]; then
   MAPPING="${KIT_DIR}/metadata/mapping.csv"
   [[ -f "${MAPPING}" ]] || die "mapping.csv not found at ${MAPPING}"
-  log "Pushing images from kit ..."
+  echo "Pushing images from kit (engine=${ENGINE}, parallel=${PARALLEL}) ..."
+
+  if [[ "${PARALLEL}" -lt 1 ]]; then PARALLEL=1; fi
+
+  # Simple batching parallelism: spawn up to PARALLEL jobs, then wait; repeat
+  declare -a PIDS=()
+  JOB_COUNT=0
   while IFS=, read -r SRC SAFE; do
     TAR="${KIT_DIR}/images/${SAFE}.tar"
     [[ -f "${TAR}" ]] || die "Missing tarball: ${TAR} (from mapping ${SAFE})"
-    push_one "${TAR}" "${SRC}"
+
+    if [[ "${PARALLEL}" -gt 1 ]]; then
+      push_one "${TAR}" "${SRC}" &
+      PIDS+=("$!")
+      JOB_COUNT=$((JOB_COUNT+1))
+      if [[ ${JOB_COUNT} -ge ${PARALLEL} ]]; then
+        rc=0
+        for pid in "${PIDS[@]}"; do
+          if ! wait "$pid"; then rc=1; fi
+        done
+        PIDS=()
+        JOB_COUNT=0
+        [[ $rc -eq 0 ]] || die "One or more parallel push jobs failed"
+      fi
+    else
+      push_one "${TAR}" "${SRC}"
+    fi
   done < "${MAPPING}"
-  log "Image push complete."
+
+  # Wait for any remaining background jobs
+  if [[ ${#PIDS[@]} -gt 0 ]]; then
+    rc=0
+    for pid in "${PIDS[@]}"; do
+      if ! wait "$pid"; then rc=1; fi
+    done
+    [[ $rc -eq 0 ]] || die "One or more parallel push jobs failed"
+  fi
+  echo "Image push complete."
 fi
 
 # ------------------------------ Auto-detect a non-latest operator tag if not supplied ------------------------------
 if [[ "${OPERATOR_TAG}" == "latest" ]]; then
+  # Prefer a non-latest operator tag mirrored in the kit
   DETECTED="$(awk -F, '/instana-agent-operator/ && $1 ~ /icr.io\/instana\/instana-agent-operator:/ { split($1,a,":"); if (a[2]!="latest") print a[2] }' "${KIT_DIR}/metadata/mapping.csv" | head -n1 || true)"
   if [[ -n "${DETECTED}" ]]; then
     OPERATOR_TAG="${DETECTED}"
-    log "Auto-detected operator tag: ${OPERATOR_TAG}"
+    echo "Auto-detected operator tag: ${OPERATOR_TAG}"
   else
-    warn "No non-latest operator tag found in kit; continuing with :latest (not recommended)."
+    echo "No non-latest operator tag found in kit; continuing with :latest (not recommended)."
   fi
 fi
 
@@ -302,18 +352,20 @@ if [[ "${PUSH_ONLY}" != "true" ]]; then
   if [[ -z "${AGENT_KEY}" ]]; then warn "--agent-key is empty; agents will not connect"; fi
   if [[ -z "${ENDPOINT_HOST}" ]]; then warn "--endpoint-host is empty; agents will not connect"; fi
 
+# Apply CRDs from the chart to avoid CR timing issues
   TMP_CHART_DIR="$(mktemp -d)"
   tar -xzf "${CHART_TGZ}" -C "${TMP_CHART_DIR}"
   if [[ -d "${TMP_CHART_DIR}/instana-agent/crds" ]]; then
-    log "Applying CRDs from chart (instana-agent/crds)"
+    echo "Applying CRDs from chart (instana-agent/crds)"
     oc apply -f "${TMP_CHART_DIR}/instana-agent/crds"
   elif [[ -d "${TMP_CHART_DIR}/crds" ]]; then
-    log "Applying CRDs from chart (crds)"
+    echo "Applying CRDs from chart (crds)"
     oc apply -f "${TMP_CHART_DIR}/crds"
   else
-    warn "No CRDs directory found inside chart archive; continuing"
+    echo "No CRDs directory found inside chart archive; continuing"
   fi
 
+# Compose values pointing to your internal registry
   VALUES_FILE="$(mktemp)"
   cat > "${VALUES_FILE}" <<YAML
 agent:
@@ -337,24 +389,26 @@ zone:
   name: "${ZONE_NAME}"
 YAML
 
-  log "Helm upgrade --install ${RELEASE_NAME} in ${NAMESPACE}"
-  helm upgrade --install "${RELEASE_NAME}" "${CHART_TGZ}" \
-    --namespace "${NAMESPACE}" --create-namespace \
-    -f "${VALUES_FILE}"
+# Helm install/upgrade
+echo "Helm upgrade --install ${RELEASE_NAME} in ${NAMESPACE}"
+helm upgrade --install "${RELEASE_NAME}" "${CHART_TGZ}" \
+  --namespace "${NAMESPACE}" --create-namespace \
+  -f "${VALUES_FILE}"
 
-  log "Waiting for operator pod to be ready..."
-  oc rollout status deploy/instana-agent-controller-manager -n "${NAMESPACE}" --timeout=180s || true
-  log "Checking Agent CR presence and status..."
-  if oc api-resources | grep -qiE '^agent(\.|s)\s'; then
-    oc get agent -n "${NAMESPACE}" || true
-    if command -v yq >/dev/null 2>&1; then
-      oc get agent -n "${NAMESPACE}" -o yaml | yq '.items[?].status' || true
-    fi
-  else
-    oc get instanaagent -n "${NAMESPACE}" || true
+# Basic post-install checks
+echo "Waiting for operator pod to be ready..."
+oc rollout status deploy/instana-agent-controller-manager -n "${NAMESPACE}" --timeout=180s || true
+echo "Checking Agent CR presence and status..."
+if oc api-resources | grep -qiE '^agent(\.|s)\s'; then
+  oc get agent -n "${NAMESPACE}" || true
+  if command -v yq >/dev/null 2>&1; then
+    oc get agent -n "${NAMESPACE}" -o yaml | yq '.items[?].status' || true
   fi
-  log "Pods in ${NAMESPACE}:"
-  oc get pods -n "${NAMESPACE}"
+else
+  oc get instanaagent -n "${NAMESPACE}" || true
+fi
+echo "Pods in ${NAMESPACE}:"
+oc get pods -n "${NAMESPACE}"
 fi
 
-log "DONE. Verify with: oc -n ${NAMESPACE} get pods"
+echo "DONE. Verify with: oc -n ${NAMESPACE} get pods"
