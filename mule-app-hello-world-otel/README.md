@@ -58,13 +58,13 @@ OTEL_RESOURCE_ATTRIBUTES = service.name=hello-world,deployment.env=sandbox
 
 Go to "Runtimes" -> "Runtime Manager"
 
-![Runtime Manager path](image.png)
+![Runtime Manager path](images/image.png)
 
 I'm going to use `sandbox`
 
 Click on the "Deploy Application" button, give the application a name, upload the jar file and fill the fields on the "Properties" tab:
 
-![Deploy hello world](image-1.png)
+![Deploy hello world](images/image-1.png)
 
 Click the "Deploy" button and wait a bit for the app to be up and running.
 
@@ -72,7 +72,7 @@ I had another app running, changed the name to "hello-world-instana2" and deploy
 
 If everything went well, you should have something like this with the app in "Running" state.
 
-![Hello World Instana running](image-2.png)
+![Hello World Instana running](images/image-2.png)
 
 ## Testing the App
 
@@ -80,7 +80,7 @@ Open the public endpoint with `/helloWorld`
 
 https://yourapp.cloudhub.io/helloWorld
 
-![Hello World!](image-3.png)
+![Hello World!](images/image-3.png)
 
 Reload it a few times just to send data to Instana.
 
@@ -89,29 +89,29 @@ Reload it a few times just to send data to Instana.
 
 Go to "Analytics" -> "Applications/Traces" and search by "Call.Type = HTTP" and DEST.Trace.ServiceName = "hello-world"
 
-![Instana search](image-4.png)
+![Instana search](images/image-4.png)
 
-![13 traces](image-5.png)
+![13 traces](images/image-5.png)
 
 Remember that I told you I had another instance running, well, we can see them here:
 
-![Both instances](image-6.png)
+![Both instances](images/image-6.png)
 
 ## Tracing details
 
 ### Tags
 
-![Tags](image-7.png)
+![Tags](images/image-7.png)
 
 ### Resource
 
-![Resource](image-8.png)
+![Resource](images/image-8.png)
 
 ### Infrastructure
 
-![Infrastructure](image-9.png)
+![Infrastructure](images/image-9.png)
 
-![Infrastructure metrics](image-10.png)
+![Infrastructure metrics](images/image-10.png)
 
 ## Final thoughts
 
