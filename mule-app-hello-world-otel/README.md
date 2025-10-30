@@ -97,6 +97,10 @@ Remember that I told you I had another instance running, well, we can see them h
 
 ![Both instances](images/image-6.png)
 
+And you can see those as well on "Analytics" -> "Application" -> "Calls", these are sorted by `mule.serverId`
+
+![MuleServer](images/image-11.png)
+
 ## Tracing details
 
 ### Tags
