@@ -1,0 +1,23 @@
+{
+  "configs": [
+    "hello-world.xml"
+  ],
+  "secureProperties": [ "otel.header.instana.key"],
+  "redeploymentEnabled": true,
+  "name": "hello-world",
+  "minMuleVersion": "4.10.0",
+  "requiredProduct": "MULE_EE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedResources": []
+    }
+  },
+  "bundleDescriptorLoader": {
+    "id": "mule",
+    "attributes": {}
+  },
+  "javaSpecificationVersions": [
+    "17"
+  ]
+}
